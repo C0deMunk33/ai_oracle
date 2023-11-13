@@ -1,3 +1,29 @@
+node_modules
+.env
+coverage
+coverage.json
+typechain
+typechain-types
+
+# Hardhat files
+cache
+artifacts
+
+# keys and such
+.eth_keys
+.oai_api
+.infura
+node_modules
+.env
+coverage
+coverage.json
+typechain
+typechain-types
+
+# Hardhat files
+cache
+artifacts
+
 # Logs
 logs
 *.log

@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIETHO</title>
+    <script src="/libs/web3.min.js"></script>
+    <script src="/libs/oracle_bot_abi.js"></script>
+    <script src="/libs/oracle_bot_address.js"></script>
+    <script src="/libs/callback_example_abi.js"></script>
+    <script src="/libs/callback_example_address.js"></script>
+
+    <style>
+        #content,
+        #request_type,
+        #request_document,
+        #request_callback {
+            display: none;
+        }
+
+        /*stylized button that the user sees after connecting to metamask*/
+        .big_button {
+            background-color: #4CAF50; /* Green */
+            border: none;
+            color: white;
+            padding: 16px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <button class="big_button" onclick="getAccount()">Connect MetaMask</button>
+    <div id="request_type">
+        <!-- document request button-->
+        <button id="request_document_button" onclick="request_document_page()" class="big_button">Request Document</button>
+
+        <!-- callback request button-->
+        <button id="request_callback_button"  onclick="request_callback_page()" class="big_button">Request Callback</button>
+    </div>
+    <div id="request_document">
+        <!-- back button -->
+        <button onclick="go_home()" class="big_button">Home</button>
+        <h2>Request Document</h2>
+        <textarea name="request_document_body" id="request_document_body" cols="30" rows="10"></textarea>
+        <button onclick="request_document()">Request Document</button>
+
+    </div>    
+    <div id="request_callback"><!-- back button -->
+        <button onclick="go_home()" class="big_button">Home</button>
+        <h2>Request Callback</h2>
+        
+        <div id="request_callback_parameters">
+            <h3>Function Name</h3>
+            <!-- request callback function name-->
+            <input type="text" onblur="update_request_callback_signature()" name="request_callback_function_name" id="request_callback_function_name" placeholder="function name">
+            <h3>Function Parameters</h3>
+            <button class="big_button" onclick="add_parameter()">Add Parameter</button>
+            <div id="request_callback_parameter_list">
+                
+                <div id="parameter_template">
+                    <input type="text" name="parameter_name" id="parameter_name" placeholder="parameter name">
+                    <select name="parameter_type" id="parameter_type">
+                        <option value="uint256">uint256</option>
+                        <option value="bytes32">bytes32</option>
+                        <option value="address">address</option>
+                        <option value="bool">bool</option>
+                        <option value="bytes">bytes</option>
+                        <option value="string">string</option>
+                    </select>
+                </div>
+            </div>
+            <h3>Function Signature</h3>
+            <p>This should match the signature for the target callback</p>
+            <!-- constructed function signature, readonly-->
+            <input type="text" name="request_callback_signature" id="request_callback_signature" placeholder="function signature" readonly>
+            <!-- request callback eth address-->
+            <h3>Callback Address</h3>
+            <input type="text" name="request_callback_address" id="request_callback_address" placeholder="callback address">
+            <!-- request callback body-->
+            <h3>Callback Request Text</h3>
+            <textarea name="request_callback_body" id="request_callback_body" cols="30" rows="10"></textarea>
+            <!-- add parameter button -->
+            
+        </div>
+        <button onclick="request_callback()" class="big_button">request_callback</button>
+    <script>
+        let web3;
+        let account;
+        async function getAccount() {
+            // Request account access if needed
+            if (window.ethereum) {
+                window.web3 = new Web3(ethereum);
+                try {
+                    // Request account access
+                    const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+                    account = accounts[0];
+                    window.web3 = new Web3(ethereum);
+                    // hide connect button
+                    document.querySelector('button').style.display = 'none';
+                    // show content
+                    document.querySelector('#request_type').style.display = 'block';
+                } catch (error) {
+                    console.error("User denied account access...", error);
+                }
+
+                web3 = window.web3;
+                oracle_bot_contract = new web3.eth.Contract(oracle_bot_abi, oracle_bot_address);
+                callback_example_contract = new web3.eth.Contract(callback_example_abi, callback_example_address);
+            
+            }
+            // Non-dapp browsers...
+            else {
+                console.log('Non-Ethereum browser detected. You should consider trying MetaMask!');
+            }
+        }
+        let parameter_count = 0;
+        function add_parameter() {
+            const parameter_list = document.querySelector('#request_callback_parameter_list');
+            const new_parameter = parameter_template_clone.cloneNode(true);
+            let new_parameter_name = new_parameter.querySelector('#parameter_name');
+            new_parameter_name.id = 'parameter_name_' + parameter_count;
+            new_parameter_name.name = 'parameter_name_' + parameter_count;
+            let new_parameter_type = new_parameter.querySelector('#parameter_type');
+            new_parameter_type.id = 'parameter_type_' + parameter_count;
+            new_parameter_type.name = 'parameter_type_' + parameter_count;
+
+            // on exit of new_parameter_name, update request_callback_signature
+            new_parameter_name.addEventListener('blur', () => {
+                update_request_callback_signature();
+            });
+
+            // on change of new_parameter_type, update request_callback_signature
+            new_parameter_type.addEventListener('change', () => {
+                update_request_callback_signature();
+            });
+            parameter_list.appendChild(new_parameter);
+
+            parameter_count++   
+            
+        }
+
+        function update_request_callback_signature() {
+            /*
+            request_callback_function_name ( param_types )
+            */
+            let params_types = '';
+            for (let i = 0; i < parameter_count; i++) {
+                const parameter_type = document.querySelector('#parameter_type_' + i).value;
+                params_types += parameter_type + ',';
+            }
+            params_types = params_types.slice(0, -1);
+
+            const request_callback_function_name = document.querySelector('#request_callback_function_name').value;
+
+            let callback_signature = request_callback_function_name + '(' + params_types + ')';
+            document.querySelector('#request_callback_signature').value = callback_signature;
+        }
+
+
+        async function upload_to_ipfs(doc_to_store) {
+            console.log('uploading to ipfs');
+            console.log(doc_to_store)
+            // if doc_to_store is bigger than 1000 characters, reject
+            if (doc_to_store.length > 1000) {
+                alert('request is too big');
+                return;
+            }
+
+            // post the document to ipfs using /post_ipfs
+            const response = await fetch('/post_ipfs', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ "doc": doc_to_store })
+            });
+
+            let result = await response.json();
+            
+            return result.cid;
+
+            
+            /* // expected url is like http://localhost:5001
+            ipfs_url = "http://localhost:5001"
+            const blob = new Blob([doc_to_store], { type: 'text/plain' });
+            const formData = new FormData();
+            formData.append('file', blob);
+            const response = await fetch(ipfs_url + '/api/v0/add', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            const cid = result.Hash;
+
+            // pin the cid
+            const response_pin = await fetch(ipfs_url + '/api/v0/pin/add?arg=' + cid, {
+                method: 'POST'
+            });
+
+            return cid;
+            */
+        }
+
+        async function request_document() {
+            const oracle_bot_contract = new web3.eth.Contract(oracle_bot_abi, oracle_bot_address);
+            const request_document_body = document.querySelector('#request_document_body').value;
+            // dump the document to ipfs
+            
+            const cid = await upload_to_ipfs(request_document_body);
+            console.log('cid', cid);
+
+            const request_document_result = await oracle_bot_contract.methods.request_document(cid).send({from: account});
+            console.log('request_document_result', request_document_result);
+        }
+
+        async function request_callback() {
+            
+            /*
+                function request_callback(
+                    string memory cid, 
+                    address callback_address, 
+                    string memory callback_signature, // like "some_callback(bytes32,address,uint256)"
+                    string memory param_names // like "param1,param2,param3"
+                ) public
+            */
+            const request_callback_body = document.querySelector('#request_callback_body').value;
+            const callback_address = document.querySelector('#request_callback_address').value;
+            const callback_signature = document.querySelector('#request_callback_signature').value;
+            // get parameters
+            let param_names = '';
+            let params_types = '';
+            for (let i = 0; i < parameter_count; i++) {
+                const parameter_name = document.querySelector('#parameter_name_' + i).value;
+                const parameter_type = document.querySelector('#parameter_type_' + i).value;
+                param_names += parameter_name + ',';
+                params_types += parameter_type + ',';
+            }
+            param_names = param_names.slice(0, -1);
+            params_types = params_types.slice(0, -1);
+
+
+            console.log('request_callback_body', request_callback_body);
+            console.log('callback_address', callback_address);
+            console.log('callback_signature', callback_signature);
+            console.log('param_names', param_names);
+            console.log('params_types', params_types);
+
+            // post request_callback_body to local IPFS node and get CID
+            const cid = await upload_to_ipfs(request_callback_body);
+
+            console.log('cid', cid);
+            await oracle_bot_contract.methods.request_callback(cid, callback_address, callback_signature, param_names).send({from: account});
+
+
+        }
+        
+
+
+        async function load_requests() {
+            // event Document_Requested(uint32 indexed document_idx, address indexed requester);
+            // event Callback_Requested(uint32 indexed document_idx, address indexed requester);
+
+            const oracle_bot_contract = new web3.eth.Contract(oracle_bot_abi, oracle_bot_address);
+            
+            // get Document_Requested events where the requester is the current account
+            const document_requested_events = await oracle_bot_contract.getPastEvents('Document_Requested', {
+                filter: {requester: account},
+                fromBlock: 0,
+                toBlock: 'latest'
+            });
+            console.log('document_requested_events', document_requested_events);
+
+            // for each document_requested_event, get the event parameters
+            for (let i = 0; i < document_requested_events.length; i++) {
+                const document_requested_event = document_requested_events[i];
+                const document_idx = document_requested_event.returnValues.document_idx;
+                const requester = document_requested_event.returnValues.requester;
+                console.log('document_idx', document_idx);
+                console.log('requester', requester);
+
+                // call oracle_bot_contract.document_responses(document_idx)
+                const cid = await oracle_bot_contract.methods.get_document_response(document_idx).call();
+                // get the document from IPFS
+                const response = await fetch('/get_ipfs?cid=' + cid);
+                const result = await response.json();
+                console.log('result', result);
+                const document_body = result.doc;
+                console.log('document_body', document_body);
+                return 
+                // display the document
+                const document_requested_div = document.createElement('div');
+                document_requested_div.innerHTML = document_body;
+                document.querySelector('#document_requested').appendChild(document_requested_div);
+            }
+
+            // get Callback_Requested events where the requester is the current account
+            const callback_requested_events = await oracle_bot_contract.getPastEvents('Callback_Requested', {
+                filter: {requester: account},
+                fromBlock: 0,
+                toBlock: 'latest'
+            });
+            console.log('callback_requested_events', callback_requested_events);
+        }
+
+        async function getBalance() {
+            try {
+                const oracle_bot_contract = new web3.eth.Contract(oracle_bot_abi, oracle_bot_address);
+                
+            } catch (error) {
+                console.error(`Failed to load token balance...`, error);
+            }
+        }
+        async function go_home(){
+            document.querySelector('#request_type').style.display = 'block';
+            document.querySelector('#request_document').style.display = 'none';
+            document.querySelector('#request_callback').style.display = 'none';
+        }
+        async function request_document_page(){
+            // hide request type buttons
+            document.querySelector('#request_type').style.display = 'none';
+            // show request document page
+            document.querySelector('#request_document').style.display = 'block';
+        }
+
+        
+        async function request_callback_page(){
+            // copy parameter_template into memory and remove it from the DOM
+            const parameter_template = document.querySelector('#parameter_template');
+            parameter_template_clone = parameter_template.cloneNode(true);
+            parameter_template.remove();
+            
+            
+            // hide request type buttons
+            document.querySelector('#request_type').style.display = 'none';
+            // show request callback page
+            document.querySelector('#request_callback').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

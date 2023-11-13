@@ -1,0 +1,1 @@
+const oracle_bot_address = "0xe387b168cF867c6c1DbB52dcA67Ac60d8c9424Fd";
